@@ -3,6 +3,17 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+try:
+    from card_contour_helpers import (
+        approximate_card_contour,
+        preprocess_for_card_contour,
+    )
+except ModuleNotFoundError:
+    from scripts.card_contour_helpers import (
+        approximate_card_contour,
+        preprocess_for_card_contour,
+    )
+
 
 def save_image(output_dir: Path, filename: str, image) -> None:
     output_path = output_dir / filename
@@ -79,24 +90,12 @@ def main() -> None:
         print("Error: failed to load image.")
         return
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blur, 50, 150)
+    edges = preprocess_for_card_contour(image)
+    _, largest_contour, _, _, approx = approximate_card_contour(edges)
 
-    contours, _ = cv2.findContours(
-        edges,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    if not contours:
+    if largest_contour is None:
         print("No contours found.")
         return
-
-    largest_contour = max(contours, key=cv2.contourArea)
-    perimeter = cv2.arcLength(largest_contour, True)
-    epsilon = 0.02 * perimeter
-    approx = cv2.approxPolyDP(largest_contour, epsilon, True)
 
     print(f"Approximated contour points: {len(approx)}")
 

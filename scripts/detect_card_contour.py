@@ -2,6 +2,17 @@ from pathlib import Path
 
 import cv2
 
+try:
+    from card_contour_helpers import (
+        approximate_card_contour,
+        preprocess_for_card_contour,
+    )
+except ModuleNotFoundError:
+    from scripts.card_contour_helpers import (
+        approximate_card_contour,
+        preprocess_for_card_contour,
+    )
+
 
 def save_image(output_dir: Path, filename: str, image) -> None:
     output_path = output_dir / filename
@@ -35,34 +46,19 @@ def main() -> None:
     print("Image loaded successfully.")
     print(f"Original shape: {image.shape}")
 
-    # preprocessing
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blur, 50, 150)
-
-    # find contours
-    contours, _ = cv2.findContours(
-        edges,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
+    edges = preprocess_for_card_contour(image)
+    contours, largest_contour, contour_area, perimeter, approx = (
+        approximate_card_contour(edges)
     )
 
     print(f"Found {len(contours)} contours.")
 
-    if not contours:
+    if largest_contour is None:
         print("No contours found.")
         return
 
-    largest_contour = max(contours, key=cv2.contourArea)
-    contour_area = cv2.contourArea(largest_contour)
-    perimeter = cv2.arcLength(largest_contour, True)
-
     print(f"Largest contour area: {contour_area}")
     print(f"Largest contour perimeter: {perimeter}")
-
-    # approximate contour shape
-    epsilon = 0.02 * perimeter
-    approx = cv2.approxPolyDP(largest_contour, epsilon, True)
 
     print(f"Approximated contour points: {len(approx)}")
 
