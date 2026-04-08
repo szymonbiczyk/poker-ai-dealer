@@ -19,7 +19,11 @@ def order_points(points: np.ndarray) -> np.ndarray:
 
     s = points.sum(axis=1)
     diff = np.diff(points, axis=1)
-
+    # Image coordinates start in the top-left corner: (0, 0).
+    # smallest x + y -> top-left
+    # largest x + y -> bottom-right
+    # smallest y - x -> top-right
+    # largest y - x -> bottom-left
     rect[0] = points[np.argmin(s)]      # top-left
     rect[2] = points[np.argmax(s)]      # bottom-right
     rect[1] = points[np.argmin(diff)]   # top-right
