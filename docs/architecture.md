@@ -211,3 +211,15 @@ Reason:
 - early contour detection is expected to work best with high card-to-background contrast,
 - the current MVP is focused on controlled image conditions,
 - handling low-contrast scenes will be improved in later iterations.
+
+## Corner extraction note
+
+The current corner extraction uses fixed width/height ratios based on the extracted card image.
+
+This is acceptable for the MVP and controlled conditions, but it may become unreliable for:
+- cards with different proportions,
+- different card designs,
+- different margin sizes,
+- more diverse real-world inputs.
+
+A future improvement should normalize extracted cards to a fixed canonical size before corner cropping, or detect the rank/suit region more explicitly inside the corner area.
