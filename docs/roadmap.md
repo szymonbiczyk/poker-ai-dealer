@@ -128,3 +128,5 @@ Possible future extensions:
 - [ ] Implement first image loading script
 - [ ] Implement first card detection prototype
 - [ ] Evaluate rank/suit classification options
+- [ ] Improve card detection robustness for low-contrast backgrounds
+- [ ] Evaluate preprocessing strategies for different card/background color combinations

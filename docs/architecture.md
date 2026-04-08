@@ -204,3 +204,10 @@ Reason:
 - chip detection and counting,
 - poker hand evaluation,
 - game-state tracking.
+
+## Current assumptions
+
+- the card should be visually separable from the background,
+- early contour detection is expected to work best with high card-to-background contrast,
+- the current MVP is focused on controlled image conditions,
+- handling low-contrast scenes will be improved in later iterations.
