@@ -22,3 +22,8 @@
 - How should board cards and player cards be grouped?
 - What image conditions are needed for reliable recognition?
 - What is the best path from static image prototype to mobile demo?
+
+## Game flow ideas
+- turn timer for each player
+- automatic blind increase after a defined time interval
+- configurable table rules and round settings
