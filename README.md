@@ -28,6 +28,9 @@ Example output:
 - `Ace of Spades`
 - `10 of Hearts`
 
+Current MVP runner: `scripts/match_card_from_best_corner.py`
+Prerequisite: rank and suit templates must exist in `data/templates/`.
+
 ## Planned Tech Stack
 
 - **Python** – main development language

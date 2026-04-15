@@ -153,6 +153,16 @@ High-level orchestration of the full recognition flow.
 Shared helper functions.
 
 ---
+## Current repository note
+
+The current MVP implementation lives mainly in the `scripts/` directory.
+
+At this stage, the repository contains:
+- step-by-step experimental scripts used during development and debugging,
+- reusable helper code for contour detection and card extraction,
+- an end-to-end single-card runner for the current MVP flow.
+
+A later refactor may move the stable pipeline into the planned `src/` package structure.
 
 ## Design principles
 
@@ -210,7 +220,9 @@ Reason:
 - the card should be visually separable from the background,
 - early contour detection is expected to work best with high card-to-background contrast,
 - the current MVP is focused on controlled image conditions,
-- handling low-contrast scenes will be improved in later iterations.
+- the current classification stage depends on stable corner crops and template quality,
+- template matching is treated as an early MVP classifier, not a final general solution,
+- handling more diverse card layouts and more robust corner segmentation will be improved in later iterations.
 
 ## Corner extraction note
 
@@ -223,3 +235,34 @@ This is acceptable for the MVP and controlled conditions, but it may become unre
 - more diverse real-world inputs.
 
 A future improvement should normalize extracted cards to a fixed canonical size before corner cropping, or detect the rank/suit region more explicitly inside the corner area.
+
+## Current MVP corner-segmentation note
+
+The current MVP extracts rank and suit from a fixed-ratio corner crop taken from the normalized card image.
+
+Current symbol separation logic:
+- threshold the selected corner,
+- find external contours,
+- filter out very small candidates,
+- choose a rank anchor with a strong top-left / top-row preference,
+- optionally merge a second nearby box into the rank to support multipart ranks such as "10",
+- build the final rank box first,
+- then choose the suit candidate below the rank and near the same X column,
+- treat the remaining mismatched candidates as noise or inner-card artifacts.
+
+This works for many controlled inputs, but it can fail when:
+- the fixed corner crop includes part of a large inner suit symbol,
+- the card design places artwork or large pips too close to the corner area,
+- the rank and suit spacing differs from the layouts used during early testing,
+- the input resolution is too low for stable contour separation.
+
+Known implication:
+- the current MVP is suitable for controlled validation and architecture proof-of-concept,
+- but corner segmentation is still a brittle step and is a likely target for improvement in the next iteration.
+
+Possible future improvements:
+- reduce the crop width dynamically,
+- normalize extracted cards to a canonical size before corner cropping,
+- filter candidate contours by stronger positional priors inside the corner,
+- detect rank/suit regions more explicitly inside the corner,
+- replace template-based symbol classification with learned rank/suit classifiers while keeping earlier card-normalization stages.

@@ -14,27 +14,46 @@ The long-term goal is to build a system that can:
 
 ## Current development stage
 
-Project setup and planning phase.
+Early MVP prototype implemented for static single-card recognition under controlled conditions.
 
----
+Implemented prototype flow:
+- load a static image from disk,
+- detect a single card contour,
+- normalize the card with perspective correction,
+- extract both card corners,
+- choose the more readable corner,
+- segment rank and suit symbols,
+- match them against saved templates,
+- return a rank + suit prediction.
+
+Current work is focused on:
+- validating the pipeline on a small set of controlled test images,
+- documenting current assumptions and known limitations,
+- improving corner symbol separation for more card designs.
 
 ## Milestone 1 — Static single-card recognition
 
-Goal:
-Build the simplest working prototype that can recognize one playing card from a static image.
+Goal: 
+Build the simplest working prototype that can recognize one playing card from a static image under controlled conditions.
 
 Scope:
+
 - load a static image from disk,
 - detect a single card in the image,
-- crop or normalize the card region,
-- classify rank and suit,
+- crop and normalize the card region,
+- extract rank and suit from a selected corner,
+- classify rank and suit with template matching,
 - return a structured result.
 
 Definition of done:
+
 - the program accepts a test image,
-- a card is detected,
-- the detected card region can be visualized or saved,
-- the system returns a rank + suit prediction.
+- a card contour is detected,
+- the normalized card region can be visualized or saved,
+- a corner region is selected and segmented into rank + suit,
+- the system returns a rank + suit prediction,
+- the prototype works on a small validation set of controlled images,
+- current assumptions and failure cases are documented.
 
 ---
 
@@ -122,11 +141,9 @@ Possible future extensions:
 
 ## Immediate next steps
 
-- [ ] Finalize roadmap and architecture documents
-- [ ] Decide on the first technical approach for card detection
-- [ ] Prepare sample images for experimentation
-- [ ] Implement first image loading script
-- [ ] Implement first card detection prototype
-- [ ] Evaluate rank/suit classification options
-- [ ] Improve card detection robustness for low-contrast backgrounds
-- [ ] Evaluate preprocessing strategies for different card/background color combinations
+- validate Milestone 1 on a small set of representative test cards,
+- document the current single-card MVP entry point and required template setup,
+- reduce duplication in debug / visualization helpers,
+- improve project structure by separating experimental scripts from the main MVP path,
+- update architecture notes to reflect the current rank/suit box-selection logic,
+- decide whether the next iteration should improve classical CV heuristics or introduce a learned classifier for rank/suit recognition.
