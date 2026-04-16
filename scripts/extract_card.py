@@ -1,82 +1,13 @@
-from pathlib import Path
-
 import cv2
-import numpy as np
 
-try:
-    from card_contour_helpers import (
-        approximate_card_contour,
-        preprocess_for_card_contour,
-    )
-except ModuleNotFoundError:
-    from scripts.card_contour_helpers import (
-        approximate_card_contour,
-        preprocess_for_card_contour,
-    )
-
-
-def save_image(output_dir: Path, filename: str, image) -> None:
-    output_path = output_dir / filename
-    success = cv2.imwrite(str(output_path), image)
-
-    if success:
-        print(f"Saved: {output_path}")
-    else:
-        print(f"Failed to save: {output_path}")
-
-
-def order_points(points: np.ndarray) -> np.ndarray:
-    rect = np.zeros((4, 2), dtype="float32")
-
-    s = points.sum(axis=1)
-    diff = np.diff(points, axis=1)
-    # Image coordinates start in the top-left corner: (0, 0).
-    # smallest x + y -> top-left
-    # largest x + y -> bottom-right
-    # smallest y - x -> top-right
-    # largest y - x -> bottom-left
-    rect[0] = points[np.argmin(s)]      # top-left
-    rect[2] = points[np.argmax(s)]      # bottom-right
-    rect[1] = points[np.argmin(diff)]   # top-right
-    rect[3] = points[np.argmax(diff)]   # bottom-left
-
-    return rect
-
-
-def four_point_transform(image: np.ndarray, points: np.ndarray) -> np.ndarray:
-    rect = order_points(points)
-    (tl, tr, br, bl) = rect
-
-    width_top = np.linalg.norm(tr - tl)
-    width_bottom = np.linalg.norm(br - bl)
-    max_width = int(max(width_top, width_bottom))
-
-    height_right = np.linalg.norm(br - tr)
-    height_left = np.linalg.norm(bl - tl)
-    max_height = int(max(height_right, height_left))
-
-    destination = np.array(
-        [
-            [0, 0],
-            [max_width - 1, 0],
-            [max_width - 1, max_height - 1],
-            [0, max_height - 1],
-        ],
-        dtype="float32"
-    )
-
-    matrix = cv2.getPerspectiveTransform(rect, destination)
-    warped = cv2.warpPerspective(image, matrix, (max_width, max_height))
-
-    return warped
+from card_extraction_helpers import extract_card_from_image
+from io_helpers import load_image, save_images, show_images, wait_for_windows
+from path_helpers import get_default_sample_image_path, get_processed_dir
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    image_path = project_root / "data" / "samples" / "card_test.jpg"
-    output_dir = project_root / "data" / "processed"
-
-    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = get_default_sample_image_path()
+    output_dir = get_processed_dir(create=True)
 
     print(f"Looking for image at: {image_path}")
 
@@ -84,41 +15,38 @@ def main() -> None:
         print("Error: image file does not exist.")
         return
 
-    image = cv2.imread(str(image_path))
+    image = load_image(image_path)
 
     if image is None:
-        print("Error: failed to load image.")
         return
 
-    edges = preprocess_for_card_contour(image)
-    _, largest_contour, _, _, approx = approximate_card_contour(edges)
-
-    if largest_contour is None:
-        print("No contours found.")
+    try:
+        extraction = extract_card_from_image(image)
+    except ValueError as error:
+        print(f"Error: {error}")
         return
 
-    print(f"Approximated contour points: {len(approx)}")
-
-    if len(approx) != 4:
-        print("Error: contour approximation did not return 4 points.")
-        return
-
-    points = approx.reshape(4, 2).astype("float32")
-    warped = four_point_transform(image, points)
+    print(f"Approximated contour points: {len(extraction.approx)}")
 
     contour_image = image.copy()
-    cv2.drawContours(contour_image, [largest_contour], -1, (0, 255, 0), 3)
-    cv2.drawContours(contour_image, [approx], -1, (0, 0, 255), 3)
+    cv2.drawContours(contour_image, [extraction.largest_contour], -1, (0, 255, 0), 3)
+    cv2.drawContours(contour_image, [extraction.approx], -1, (0, 0, 255), 3)
 
-    save_image(output_dir, "08_card_contour.jpg", contour_image)
-    save_image(output_dir, "09_extracted_card.jpg", warped)
+    save_images(
+        output_dir,
+        [
+            ("08_card_contour.jpg", contour_image),
+            ("09_extracted_card.jpg", extraction.extracted_card),
+        ],
+    )
 
-    cv2.imshow("Detected Card Contour", contour_image)
-    cv2.imshow("Extracted Card", warped)
-
-    print("Press any key in an image window to close.")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    show_images(
+        [
+            ("Detected Card Contour", contour_image),
+            ("Extracted Card", extraction.extracted_card),
+        ]
+    )
+    wait_for_windows()
 
 
 if __name__ == "__main__":

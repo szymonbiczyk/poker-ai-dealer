@@ -1,56 +1,6 @@
-from pathlib import Path
-
-import cv2
-import numpy as np
-
-
-def load_image(path: Path):
-    image = cv2.imread(str(path))
-    if image is None:
-        print(f"Error: failed to load image: {path}")
-        return None
-    return image
-
-
-def analyze_corner(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
-    contrast = gray.std()
-
-    _, threshold = cv2.threshold(
-        gray,
-        0,
-        255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-    )
-
-    foreground_ratio = np.count_nonzero(threshold) / threshold.size
-
-    return {
-        "gray": gray,
-        "threshold": threshold,
-        "sharpness": float(sharpness),
-        "contrast": float(contrast),
-        "foreground_ratio": float(foreground_ratio),
-    }
-
-
-def foreground_score(ratio: float, target: float = 0.22, tolerance: float = 0.22) -> float:
-    return max(0.0, 1.0 - abs(ratio - target) / tolerance)
-
-
-def total_score(metrics, max_sharpness: float, max_contrast: float) -> float:
-    sharpness_score = metrics["sharpness"] / max(max_sharpness, 1e-6)
-    contrast_score = metrics["contrast"] / max(max_contrast, 1e-6)
-    ratio_score = foreground_score(metrics["foreground_ratio"])
-
-    score = (
-        0.50 * sharpness_score +
-        0.30 * contrast_score +
-        0.20 * ratio_score
-    )
-    return score
+from corner_quality_helpers import compare_two_corners
+from io_helpers import load_image, show_images, wait_for_windows
+from path_helpers import get_processed_dir
 
 
 def print_metrics(label: str, metrics: dict, score: float) -> None:
@@ -62,8 +12,7 @@ def print_metrics(label: str, metrics: dict, score: float) -> None:
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    output_dir = project_root / "data" / "processed"
+    output_dir = get_processed_dir()
 
     top_left_path = output_dir / "20_top_left_corner.jpg"
     bottom_right_rotated_path = output_dir / "22_bottom_right_corner_rotated.jpg"
@@ -75,25 +24,21 @@ def main() -> None:
         print("Run scripts/extract_both_card_corners.py first.")
         return
 
-    top_left_metrics = analyze_corner(top_left)
-    bottom_right_metrics = analyze_corner(bottom_right_rotated)
-
-    max_sharpness = max(
-        top_left_metrics["sharpness"],
-        bottom_right_metrics["sharpness"],
+    comparison = compare_two_corners(
+        top_left,
+        bottom_right_rotated,
+        first_name="top_left",
+        second_name="bottom_right_rotated",
     )
-    max_contrast = max(
-        top_left_metrics["contrast"],
-        bottom_right_metrics["contrast"],
-    )
-
-    top_left_total = total_score(top_left_metrics, max_sharpness, max_contrast)
-    bottom_right_total = total_score(bottom_right_metrics, max_sharpness, max_contrast)
+    top_left_metrics = comparison["metrics"]["top_left"]
+    bottom_right_metrics = comparison["metrics"]["bottom_right_rotated"]
+    top_left_total = comparison["scores"]["top_left"]
+    bottom_right_total = comparison["scores"]["bottom_right_rotated"]
 
     print_metrics("Top-left corner", top_left_metrics, top_left_total)
     print_metrics("Bottom-right rotated corner", bottom_right_metrics, bottom_right_total)
 
-    if top_left_total > bottom_right_total:
+    if comparison["selected_name"] == "top_left":
         winner_name = "top-left corner"
         winner_image = top_left
         winner_threshold = top_left_metrics["threshold"]
@@ -104,16 +49,17 @@ def main() -> None:
 
     print(f"\nSelected better corner: {winner_name}")
 
-    cv2.imshow("Top-left corner", top_left)
-    cv2.imshow("Bottom-right rotated corner", bottom_right_rotated)
-    cv2.imshow("Top-left threshold", top_left_metrics["threshold"])
-    cv2.imshow("Bottom-right threshold", bottom_right_metrics["threshold"])
-    cv2.imshow("Selected better corner", winner_image)
-    cv2.imshow("Selected better corner threshold", winner_threshold)
-
-    print("Press any key in an image window to close.")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    show_images(
+        [
+            ("Top-left corner", top_left),
+            ("Bottom-right rotated corner", bottom_right_rotated),
+            ("Top-left threshold", top_left_metrics["threshold"]),
+            ("Bottom-right threshold", bottom_right_metrics["threshold"]),
+            ("Selected better corner", winner_image),
+            ("Selected better corner threshold", winner_threshold),
+        ]
+    )
+    wait_for_windows()
 
 
 if __name__ == "__main__":

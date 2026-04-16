@@ -4,16 +4,13 @@ import cv2
 import numpy as np
 
 from generate_rank_and_suit_templates import normalize_symbol
-
-
-def load_grayscale_image(path: Path):
-    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-
-    if image is None:
-        print(f"Error: failed to load image: {path}")
-        return None
-
-    return image
+from io_helpers import (
+    is_image_file,
+    load_grayscale_image,
+    show_resizable_window,
+    wait_for_windows,
+)
+from path_helpers import get_processed_dir, get_rank_templates_dir, get_suit_templates_dir
 
 
 def to_bgr(image: np.ndarray) -> np.ndarray:
@@ -102,12 +99,6 @@ def create_comparison_preview(
     return stack_vertically([top_row, bottom_row])
 
 
-def show_resizable_window(window_name: str, image: np.ndarray, width: int = 900, height: int = 700) -> None:
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.imshow(window_name, image)
-    cv2.resizeWindow(window_name, width, height)
-
-
 def match_symbol(symbol_image: np.ndarray, templates_dir: Path):
     best_label = None
     best_score = -1.0
@@ -118,7 +109,7 @@ def match_symbol(symbol_image: np.ndarray, templates_dir: Path):
     all_results = []
 
     for template_path in sorted(templates_dir.glob("*")):
-        if template_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        if not is_image_file(template_path):
             continue
 
         template = load_grayscale_image(template_path)
@@ -160,19 +151,20 @@ def match_symbol(symbol_image: np.ndarray, templates_dir: Path):
         "all_results": all_results,
     }
 
+
 def print_top_results(title: str, results: list[tuple], top_k: int = 3) -> None:
     print(f"\nTop {top_k} {title}:")
     for label, score, *_ in results[:top_k]:
         print(f"  {label}: {score:.4f}")
 
+
 def main() -> None:
-    project_root = Path(__file__).resolve().parent.parent
+    processed_dir = get_processed_dir()
+    rank_image_path = processed_dir / "29_detect_best_corner_rank_region.jpg"
+    suit_image_path = processed_dir / "30_detect_best_corner_suit_region.jpg"
 
-    rank_image_path = project_root / "data" / "processed" / "29_detect_best_corner_rank_region.jpg"
-    suit_image_path = project_root / "data" / "processed" / "30_detect_best_corner_suit_region.jpg"
-
-    rank_templates_dir = project_root / "data" / "templates" / "ranks"
-    suit_templates_dir = project_root / "data" / "templates" / "suits"
+    rank_templates_dir = get_rank_templates_dir()
+    suit_templates_dir = get_suit_templates_dir()
 
     if not rank_image_path.exists() or not suit_image_path.exists():
         print("Error: rank or suit region image does not exist.")
@@ -236,10 +228,7 @@ def main() -> None:
 
     show_resizable_window("Rank Match Preview", rank_preview, 950, 800)
     show_resizable_window("Suit Match Preview", suit_preview, 950, 800)
-
-    print("Press any key in an image window to close.")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    wait_for_windows()
 
 
 if __name__ == "__main__":

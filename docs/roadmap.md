@@ -143,7 +143,5 @@ Possible future extensions:
 
 - validate Milestone 1 on a small set of representative test cards,
 - document the current single-card MVP entry point and required template setup,
-- reduce duplication in debug / visualization helpers,
 - improve project structure by separating experimental scripts from the main MVP path,
-- update architecture notes to reflect the current rank/suit box-selection logic,
 - decide whether the next iteration should improve classical CV heuristics or introduce a learned classifier for rank/suit recognition.

@@ -1,10 +1,9 @@
-from pathlib import Path
-import cv2
+from io_helpers import load_image as read_image, show_images, wait_for_windows
+from path_helpers import get_default_sample_image_path
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    image_path = project_root / "data" / "samples" / "card_test.jpg"
+    image_path = get_default_sample_image_path()
 
     print(f"Looking for image at: {image_path}")
 
@@ -12,10 +11,9 @@ def main() -> None:
         print("Error: image file does not exist.")
         return
 
-    image = cv2.imread(str(image_path))
+    image = read_image(image_path)
 
     if image is None:
-        print("Error: failed to load image.")
         return
 
     height, width, channels = image.shape
@@ -25,9 +23,8 @@ def main() -> None:
     print(f"Height: {height}px")
     print(f"Channels: {channels}")
 
-    cv2.imshow("Loaded Image", image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    show_images([("Loaded Image", image)])
+    wait_for_windows()
 
 
 if __name__ == "__main__":

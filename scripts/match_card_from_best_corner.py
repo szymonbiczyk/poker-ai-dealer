@@ -3,24 +3,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from card_contour_helpers import preprocess_for_card_contour, approximate_card_contour
-from extract_card import four_point_transform
-from detect_symbols_from_best_corner import (
-    analyze_corner,
-    total_score,
-    extract_two_corners,
-    detect_rank_and_suit,
+from card_extraction_helpers import extract_card_from_image, extract_two_corners
+from corner_quality_helpers import compare_two_corners
+from detect_symbols_from_best_corner import detect_rank_and_suit
+from io_helpers import load_grayscale_image, load_image, show_images, wait_for_windows
+from path_helpers import (
+    get_default_sample_image_path,
+    get_rank_templates_dir,
+    get_suit_templates_dir,
 )
-
-
-def load_grayscale_image(path: Path):
-    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-
-    if image is None:
-        print(f"Error: failed to load image: {path}")
-        return None
-
-    return image
 
 
 def preprocess_symbol(image: np.ndarray) -> np.ndarray:
@@ -76,10 +67,9 @@ def match_symbol(symbol_image: np.ndarray, templates_dir: Path):
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    image_path = project_root / "data" / "samples" / "card_test.jpg"
-    rank_templates_dir = project_root / "data" / "templates" / "ranks"
-    suit_templates_dir = project_root / "data" / "templates" / "suits"
+    image_path = get_default_sample_image_path()
+    rank_templates_dir = get_rank_templates_dir()
+    suit_templates_dir = get_suit_templates_dir()
 
     if not image_path.exists():
         print("Error: image file does not exist.")
@@ -90,57 +80,38 @@ def main() -> None:
         print("Create data/templates/ranks and data/templates/suits first.")
         return
 
-    image = cv2.imread(str(image_path))
+    image = load_image(image_path)
 
     if image is None:
-        print("Error: failed to load image.")
         return
 
-    edges = preprocess_for_card_contour(image)
-    contours, largest_contour, contour_area, perimeter, approx = approximate_card_contour(edges)
-
-    if largest_contour is None or approx is None:
-        print("Error: no valid card contour found.")
+    try:
+        extraction = extract_card_from_image(image)
+    except ValueError as error:
+        print(f"Error: {error}")
         return
 
-    print(f"Found {len(contours)} contours.")
-    print(f"Largest contour area: {contour_area}")
-    print(f"Largest contour perimeter: {perimeter}")
-    print(f"Approximated contour points: {len(approx)}")
+    print(f"Found {len(extraction.contours)} contours.")
+    print(f"Largest contour area: {extraction.contour_area}")
+    print(f"Largest contour perimeter: {extraction.perimeter}")
+    print(f"Approximated contour points: {len(extraction.approx)}")
 
-    if len(approx) != 4:
-        print("Error: contour approximation did not return 4 points.")
-        return
-
-    points = approx.reshape(4, 2).astype("float32")
-    extracted_card = four_point_transform(image, points)
-
+    extracted_card = extraction.extracted_card
     top_left_corner, bottom_right_corner_rotated = extract_two_corners(extracted_card)
-
-    top_left_metrics = analyze_corner(top_left_corner)
-    bottom_right_metrics = analyze_corner(bottom_right_corner_rotated)
-
-    max_sharpness = max(
-        top_left_metrics["sharpness"],
-        bottom_right_metrics["sharpness"],
+    comparison = compare_two_corners(
+        top_left_corner,
+        bottom_right_corner_rotated,
+        first_name="top_left",
+        second_name="bottom_right_rotated",
     )
-    max_contrast = max(
-        top_left_metrics["contrast"],
-        bottom_right_metrics["contrast"],
-    )
-
-    top_left_score = total_score(top_left_metrics, max_sharpness, max_contrast)
-    bottom_right_score = total_score(bottom_right_metrics, max_sharpness, max_contrast)
+    top_left_score = comparison["scores"]["top_left"]
+    bottom_right_score = comparison["scores"]["bottom_right_rotated"]
 
     print(f"Top-left score: {top_left_score:.4f}")
     print(f"Bottom-right rotated score: {bottom_right_score:.4f}")
 
-    if top_left_score > bottom_right_score:
-        selected_corner_name = "top_left"
-        selected_corner = top_left_corner
-    else:
-        selected_corner_name = "bottom_right_rotated"
-        selected_corner = bottom_right_corner_rotated
+    selected_corner_name = comparison["selected_name"]
+    selected_corner = comparison["selected_image"]
 
     print(f"Selected better corner: {selected_corner_name}")
 
@@ -175,15 +146,16 @@ def main() -> None:
     print("\nFinal result:")
     print(card_result)
 
-    cv2.imshow("Selected Better Corner", selected_corner)
-    cv2.imshow("Selected Corner Threshold", threshold)
-    cv2.imshow("Selected Corner Symbol Boxes", boxed)
-    cv2.imshow("Rank Region", rank_region)
-    cv2.imshow("Suit Region", suit_region)
-
-    print("Press any key in an image window to close.")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    show_images(
+        [
+            ("Selected Better Corner", selected_corner),
+            ("Selected Corner Threshold", threshold),
+            ("Selected Corner Symbol Boxes", boxed),
+            ("Rank Region", rank_region),
+            ("Suit Region", suit_region),
+        ]
+    )
+    wait_for_windows()
 
 
 if __name__ == "__main__":

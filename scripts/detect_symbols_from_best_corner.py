@@ -1,97 +1,36 @@
-from pathlib import Path
-
 import cv2
 import numpy as np
 
-from card_contour_helpers import preprocess_for_card_contour, approximate_card_contour
-from extract_card import four_point_transform
+from card_extraction_helpers import extract_card_from_image, extract_two_corners
+from corner_quality_helpers import compare_two_corners
+from corner_symbol_helpers import BoxCandidate, find_symbol_candidates, threshold_corner
+from io_helpers import load_image, save_images, show_images, wait_for_windows
+from path_helpers import get_default_sample_image_path, get_processed_dir
 
 
-def save_image(output_dir: Path, filename: str, image) -> None:
-    output_path = output_dir / filename
-    success = cv2.imwrite(str(output_path), image)
-
-    if success:
-        print(f"Saved: {output_path}")
-    else:
-        print(f"Failed to save: {output_path}")
+DEBUG_IMAGE_FILENAMES = {
+    "all_candidates": "31_best_corner_all_candidates.jpg",
+    "rank_boxes": "32_best_corner_rank_boxes.jpg",
+    "remaining_boxes": "33_best_corner_remaining_boxes.jpg",
+    "suit_candidates": "34_best_corner_suit_candidates.jpg",
+}
 
 
-def analyze_corner(image: np.ndarray) -> dict:
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
-    contrast = gray.std()
-
-    _, threshold = cv2.threshold(
-        gray,
-        0,
-        255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-    )
-
-    foreground_ratio = np.count_nonzero(threshold) / threshold.size
-
-    return {
-        "gray": gray,
-        "threshold": threshold,
-        "sharpness": float(sharpness),
-        "contrast": float(contrast),
-        "foreground_ratio": float(foreground_ratio),
-    }
-
-
-def foreground_score(ratio: float, target: float = 0.22, tolerance: float = 0.22) -> float:
-    return max(0.0, 1.0 - abs(ratio - target) / tolerance)
-
-
-def total_score(metrics: dict, max_sharpness: float, max_contrast: float) -> float:
-    sharpness_score = metrics["sharpness"] / max(max_sharpness, 1e-6)
-    contrast_score = metrics["contrast"] / max(max_contrast, 1e-6)
-    ratio_score = foreground_score(metrics["foreground_ratio"])
-
-    return (
-        0.50 * sharpness_score +
-        0.30 * contrast_score +
-        0.20 * ratio_score
-    )
-
-
-def extract_two_corners(extracted_card: np.ndarray,
-                        corner_width_ratio: float = 0.20,
-                        corner_height_ratio: float = 0.28) -> tuple[np.ndarray, np.ndarray]:
-    card_height, card_width = extracted_card.shape[:2]
-
-    corner_width = int(card_width * corner_width_ratio)
-    corner_height = int(card_height * corner_height_ratio)
-
-    top_left_corner = extracted_card[0:corner_height, 0:corner_width]
-
-    bottom_right_corner = extracted_card[
-        card_height - corner_height:card_height,
-        card_width - corner_width:card_width,
-    ]
-
-    bottom_right_corner_rotated = cv2.rotate(bottom_right_corner, cv2.ROTATE_180)
-
-    return top_left_corner, bottom_right_corner_rotated
-
-
-def merge_boxes(boxes: list[tuple[int, int, int, int, float]]) -> tuple[int, int, int, int]:
+def merge_boxes(boxes: list[BoxCandidate]) -> tuple[int, int, int, int]:
     min_x = min(box[0] for box in boxes)
     min_y = min(box[1] for box in boxes)
     max_x = max(box[0] + box[2] for box in boxes)
     max_y = max(box[1] + box[3] for box in boxes)
     return min_x, min_y, max_x - min_x, max_y - min_y
 
-def box_center(box: tuple[int, int, int, int, float]) -> tuple[float, float]:
+def box_center(box: BoxCandidate) -> tuple[float, float]:
     x, y, w, h, _ = box
     return x + w / 2.0, y + h / 2.0
 
 
 def vertical_overlap_ratio(
-    first_box: tuple[int, int, int, int, float],
-    second_box: tuple[int, int, int, int, float],
+    first_box: BoxCandidate,
+    second_box: BoxCandidate,
 ) -> float:
     _, y1, _, h1, _ = first_box
     _, y2, _, h2, _ = second_box
@@ -106,7 +45,7 @@ def vertical_overlap_ratio(
 
 def draw_labeled_boxes(
     image: np.ndarray,
-    boxes: list[tuple[int, int, int, int, float]],
+    boxes: list[BoxCandidate],
     color: tuple[int, int, int],
     prefix: str = "",
 ) -> np.ndarray:
@@ -127,8 +66,82 @@ def draw_labeled_boxes(
 
     return debug
 
+
+def build_symbol_debug_images(
+    corner: np.ndarray,
+    debug_info: dict,
+) -> list[tuple[str, np.ndarray]]:
+    return [
+        (
+            DEBUG_IMAGE_FILENAMES["all_candidates"],
+            draw_labeled_boxes(corner, debug_info["sorted_candidates"], (255, 0, 0), "C"),
+        ),
+        (
+            DEBUG_IMAGE_FILENAMES["rank_boxes"],
+            draw_labeled_boxes(corner, debug_info["rank_boxes"], (0, 255, 0), "R"),
+        ),
+        (
+            DEBUG_IMAGE_FILENAMES["remaining_boxes"],
+            draw_labeled_boxes(corner, debug_info["remaining_boxes"], (0, 255, 255), "M"),
+        ),
+        (
+            DEBUG_IMAGE_FILENAMES["suit_candidates"],
+            draw_labeled_boxes(corner, debug_info["suit_candidates"], (0, 0, 255), "S"),
+        ),
+    ]
+
+
+def print_box_group(label: str, prefix: str, boxes: list[BoxCandidate]) -> None:
+    print(f"\n{label}:")
+    for idx, box in enumerate(boxes):
+        print(f"{prefix}{idx}: {box}")
+
+
+def print_card_extraction_summary(extraction) -> None:
+    print(f"Found {len(extraction.contours)} contours.")
+    print(f"Largest contour area: {extraction.contour_area}")
+    print(f"Largest contour perimeter: {extraction.perimeter}")
+    print(f"Approximated contour points: {len(extraction.approx)}")
+
+
+def save_corner_selection_debug_images(
+    output_dir,
+    extracted_card: np.ndarray,
+    top_left_corner: np.ndarray,
+    bottom_right_corner_rotated: np.ndarray,
+    selected_corner: np.ndarray,
+) -> None:
+    save_images(
+        output_dir,
+        [
+            ("23_detect_best_corner_extracted_card.jpg", extracted_card),
+            ("24_detect_best_corner_top_left.jpg", top_left_corner),
+            ("25_detect_best_corner_bottom_right_rotated.jpg", bottom_right_corner_rotated),
+            ("26_detect_best_corner_selected.jpg", selected_corner),
+        ],
+    )
+
+
+def save_symbol_regions_debug_images(
+    output_dir,
+    threshold: np.ndarray,
+    boxed: np.ndarray,
+    rank_region: np.ndarray,
+    suit_region: np.ndarray,
+) -> None:
+    save_images(
+        output_dir,
+        [
+            ("27_detect_best_corner_threshold.jpg", threshold),
+            ("28_detect_best_corner_symbol_boxes.jpg", boxed),
+            ("29_detect_best_corner_rank_region.jpg", rank_region),
+            ("30_detect_best_corner_suit_region.jpg", suit_region),
+        ],
+    )
+
+
 def split_rank_and_suit_boxes(
-    candidates: list[tuple[int, int, int, int, float]],
+    candidates: list[BoxCandidate],
 ) -> tuple[
     tuple[int, int, int, int],
     tuple[int, int, int, int] | None,
@@ -136,7 +149,7 @@ def split_rank_and_suit_boxes(
 ]:
     sorted_candidates = sorted(candidates, key=lambda item: (item[1], item[0]))
 
-    def rank_anchor_score(box: tuple[int, int, int, int, float]) -> float:
+    def rank_anchor_score(box: BoxCandidate) -> float:
         x, y, _, _, _ = box
         return y + 0.35 * x
 
@@ -148,7 +161,7 @@ def split_rank_and_suit_boxes(
     anchor_center_x, anchor_center_y = box_center(rank_anchor)
     anchor_right = ax + aw
 
-    def looks_like_second_rank_box(box: tuple[int, int, int, int, float]) -> bool:
+    def looks_like_second_rank_box(box: BoxCandidate) -> bool:
         x, y, w, h, _ = box
         cx, cy = box_center(box)
 
@@ -176,7 +189,7 @@ def split_rank_and_suit_boxes(
     rank_boxes = [rank_anchor]
 
     if second_rank_candidates:
-        def second_rank_score(box: tuple[int, int, int, int, float]) -> float:
+        def second_rank_score(box: BoxCandidate) -> float:
             x, _, _, h, _ = box
             _, cy = box_center(box)
 
@@ -225,7 +238,7 @@ def split_rank_and_suit_boxes(
     if not suit_candidates:
         return rank_box, None, debug_info
 
-    def suit_score(box: tuple[int, int, int, int, float]) -> float:
+    def suit_score(box: BoxCandidate) -> float:
         x, y, w, h, _ = box
         cx, cy = box_center(box)
 
@@ -242,90 +255,21 @@ def split_rank_and_suit_boxes(
     return rank_box, suit_box, debug_info
 
 def detect_rank_and_suit(corner: np.ndarray, min_area: int = 100) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    gray = cv2.cvtColor(corner, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    _, threshold = cv2.threshold(
-        blur,
-        0,
-        255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-    )
-
-    contours, _ = cv2.findContours(
-        threshold,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE,
-    )
-
-    candidates = []
-
-    for contour in contours:
-        area = cv2.contourArea(contour)
-
-        if area < min_area:
-            continue
-
-        x, y, w, h = cv2.boundingRect(contour)
-        candidates.append((x, y, w, h, area))
+    _, threshold = threshold_corner(corner)
+    _, candidates = find_symbol_candidates(threshold, min_area=min_area)
 
     if len(candidates) < 2:
         raise ValueError("Not enough valid contours found for rank and suit.")
 
     rank_box, suit_box, debug_info = split_rank_and_suit_boxes(candidates)
 
-    all_candidates_debug = draw_labeled_boxes(
-        corner,
-        debug_info["sorted_candidates"],
-        (255, 0, 0),
-        "C",
-    )
+    debug_output_dir = get_processed_dir(create=True)
+    save_images(debug_output_dir, build_symbol_debug_images(corner, debug_info))
 
-    rank_boxes_debug = draw_labeled_boxes(
-        corner,
-        debug_info["rank_boxes"],
-        (0, 255, 0),
-        "R",
-    )
-
-    remaining_boxes_debug = draw_labeled_boxes(
-        corner,
-        debug_info["remaining_boxes"],
-        (0, 255, 255),
-        "M",
-    )
-
-    suit_candidates_debug = draw_labeled_boxes(
-        corner,
-        debug_info["suit_candidates"],
-        (0, 0, 255),
-        "S",
-    )
-
-    project_root = Path(__file__).resolve().parent.parent
-    debug_output_dir = project_root / "data" / "processed"
-    debug_output_dir.mkdir(parents=True, exist_ok=True)
-
-    cv2.imwrite(str(debug_output_dir / "31_debug_all_candidates.jpg"), all_candidates_debug)
-    cv2.imwrite(str(debug_output_dir / "32_debug_rank_boxes.jpg"), rank_boxes_debug)
-    cv2.imwrite(str(debug_output_dir / "33_debug_remaining_boxes.jpg"), remaining_boxes_debug)
-    cv2.imwrite(str(debug_output_dir / "34_debug_suit_candidates.jpg"), suit_candidates_debug)
-
-    print("\nSorted candidates:")
-    for idx, box in enumerate(debug_info["sorted_candidates"]):
-        print(f"C{idx}: {box}")
-
-    print("\nRank boxes:")
-    for idx, box in enumerate(debug_info["rank_boxes"]):
-        print(f"R{idx}: {box}")
-
-    print("\nRemaining boxes:")
-    for idx, box in enumerate(debug_info["remaining_boxes"]):
-        print(f"M{idx}: {box}")
-
-    print("\nSuit candidates:")
-    for idx, box in enumerate(debug_info["suit_candidates"]):
-        print(f"S{idx}: {box}")
+    print_box_group("Sorted candidates", "C", debug_info["sorted_candidates"])
+    print_box_group("Rank boxes", "R", debug_info["rank_boxes"])
+    print_box_group("Remaining boxes", "M", debug_info["remaining_boxes"])
+    print_box_group("Suit candidates", "S", debug_info["suit_candidates"])
 
     if suit_box is None:
         raise ValueError("Could not separate rank and suit boxes from the corner.")
@@ -344,76 +288,53 @@ def detect_rank_and_suit(corner: np.ndarray, min_area: int = 100) -> tuple[np.nd
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parent.parent
-    image_path = project_root / "data" / "samples" / "card_test.jpg"
-    output_dir = project_root / "data" / "processed"
-
-    output_dir.mkdir(parents=True, exist_ok=True)
+    image_path = get_default_sample_image_path()
+    output_dir = get_processed_dir(create=True)
 
     if not image_path.exists():
         print("Error: image file does not exist.")
         return
 
-    image = cv2.imread(str(image_path))
+    image = load_image(image_path)
 
     if image is None:
-        print("Error: failed to load image.")
         return
 
-    edges = preprocess_for_card_contour(image)
-    contours, largest_contour, contour_area, perimeter, approx = approximate_card_contour(edges)
-
-    if largest_contour is None or approx is None:
-        print("Error: no valid card contour found.")
+    try:
+        extraction = extract_card_from_image(image)
+    except ValueError as error:
+        print(f"Error: {error}")
         return
 
-    print(f"Found {len(contours)} contours.")
-    print(f"Largest contour area: {contour_area}")
-    print(f"Largest contour perimeter: {perimeter}")
-    print(f"Approximated contour points: {len(approx)}")
+    print_card_extraction_summary(extraction)
 
-    if len(approx) != 4:
-        print("Error: contour approximation did not return 4 points.")
-        return
-
-    points = approx.reshape(4, 2).astype("float32")
-    extracted_card = four_point_transform(image, points)
-
+    extracted_card = extraction.extracted_card
     top_left_corner, bottom_right_corner_rotated = extract_two_corners(extracted_card)
-
-    top_left_metrics = analyze_corner(top_left_corner)
-    bottom_right_metrics = analyze_corner(bottom_right_corner_rotated)
-
-    max_sharpness = max(
-        top_left_metrics["sharpness"],
-        bottom_right_metrics["sharpness"],
+    comparison = compare_two_corners(
+        top_left_corner,
+        bottom_right_corner_rotated,
+        first_name="top_left",
+        second_name="bottom_right_rotated",
     )
-    max_contrast = max(
-        top_left_metrics["contrast"],
-        bottom_right_metrics["contrast"],
-    )
-
-    top_left_score = total_score(top_left_metrics, max_sharpness, max_contrast)
-    bottom_right_score = total_score(bottom_right_metrics, max_sharpness, max_contrast)
+    top_left_score = comparison["scores"]["top_left"]
+    bottom_right_score = comparison["scores"]["bottom_right_rotated"]
 
     print(f"Top-left score: {top_left_score:.4f}")
     print(f"Bottom-right rotated score: {bottom_right_score:.4f}")
 
-    if top_left_score > bottom_right_score:
-        selected_corner_name = "top_left"
-        selected_corner = top_left_corner
-        selected_score = top_left_score
-    else:
-        selected_corner_name = "bottom_right_rotated"
-        selected_corner = bottom_right_corner_rotated
-        selected_score = bottom_right_score
+    selected_corner_name = comparison["selected_name"]
+    selected_corner = comparison["selected_image"]
+    selected_score = comparison["selected_score"]
 
     print(f"Selected better corner: {selected_corner_name} ({selected_score:.4f})")
 
-    save_image(output_dir, "23_detect_best_corner_extracted_card.jpg", extracted_card)
-    save_image(output_dir, "24_detect_best_corner_top_left.jpg", top_left_corner)
-    save_image(output_dir, "25_detect_best_corner_bottom_right_rotated.jpg", bottom_right_corner_rotated)
-    save_image(output_dir, "26_detect_best_corner_selected.jpg", selected_corner)
+    save_corner_selection_debug_images(
+        output_dir,
+        extracted_card,
+        top_left_corner,
+        bottom_right_corner_rotated,
+        selected_corner,
+    )
 
     try:
         threshold, boxed, rank_region, suit_region = detect_rank_and_suit(selected_corner)
@@ -421,23 +342,27 @@ def main() -> None:
         print(f"Error: {error}")
         return
 
-    save_image(output_dir, "27_detect_best_corner_threshold.jpg", threshold)
-    save_image(output_dir, "28_detect_best_corner_symbol_boxes.jpg", boxed)
-    save_image(output_dir, "29_detect_best_corner_rank_region.jpg", rank_region)
-    save_image(output_dir, "30_detect_best_corner_suit_region.jpg", suit_region)
+    save_symbol_regions_debug_images(
+        output_dir,
+        threshold,
+        boxed,
+        rank_region,
+        suit_region,
+    )
 
-    cv2.imshow("Extracted Card", extracted_card)
-    cv2.imshow("Top Left Corner", top_left_corner)
-    cv2.imshow("Bottom Right Corner Rotated", bottom_right_corner_rotated)
-    cv2.imshow("Selected Better Corner", selected_corner)
-    cv2.imshow("Selected Corner Threshold", threshold)
-    cv2.imshow("Selected Corner Symbol Boxes", boxed)
-    cv2.imshow("Rank Region", rank_region)
-    cv2.imshow("Suit Region", suit_region)
-
-    print("Press any key in an image window to close.")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    show_images(
+        [
+            ("Extracted Card", extracted_card),
+            ("Top Left Corner", top_left_corner),
+            ("Bottom Right Corner Rotated", bottom_right_corner_rotated),
+            ("Selected Better Corner", selected_corner),
+            ("Selected Corner Threshold", threshold),
+            ("Selected Corner Symbol Boxes", boxed),
+            ("Rank Region", rank_region),
+            ("Suit Region", suit_region),
+        ]
+    )
+    wait_for_windows()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,13 @@ import cv2
 import numpy as np
 
 from detect_symbols_from_best_corner import detect_rank_and_suit
+from io_helpers import is_image_file, save_jpg
+from path_helpers import (
+    get_kaggle_cards_dir,
+    get_processed_dir,
+    get_rank_templates_dir,
+    get_suit_templates_dir,
+)
 
 
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
@@ -94,19 +101,6 @@ def extract_top_left_corner(card_image: np.ndarray) -> np.ndarray:
     corner_height = int(card_height * CORNER_HEIGHT_RATIO)
     return card_image[0:corner_height, 0:corner_width]
 
-
-def save_jpg(image_path: Path, image: np.ndarray) -> None:
-    image_path.parent.mkdir(parents=True, exist_ok=True)
-    success = cv2.imwrite(
-        str(image_path),
-        image,
-        [int(cv2.IMWRITE_JPEG_QUALITY), 100],
-    )
-
-    if not success:
-        raise ValueError(f"Failed to save image: {image_path}")
-
-
 def save_debug_image(debug_dir: Path | None, folder_name: str, image_name: str, image: np.ndarray) -> None:
     if debug_dir is None:
         return
@@ -119,7 +113,7 @@ def load_existing_canvas_size(template_dir: Path) -> tuple[int, int] | None:
     sizes = []
 
     for template_path in sorted(template_dir.glob("*")):
-        if template_path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+        if not is_image_file(template_path):
             continue
 
         image = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
@@ -350,11 +344,10 @@ def build_templates(
 def main() -> None:
     args = parse_args()
 
-    project_root = Path(__file__).resolve().parent.parent
-    input_dir = project_root / "data" / "raw" / "kaggle_cards"
-    rank_output_dir = project_root / "data" / "templates" / "ranks"
-    suit_output_dir = project_root / "data" / "templates" / "suits"
-    debug_dir = project_root / "data" / "processed" / "template_debug" if args.debug else None
+    input_dir = get_kaggle_cards_dir()
+    rank_output_dir = get_rank_templates_dir()
+    suit_output_dir = get_suit_templates_dir()
+    debug_dir = get_processed_dir(create=args.debug) / "template_debug" if args.debug else None
 
     if not input_dir.exists():
         print(f"Error: input directory does not exist: {input_dir}")
