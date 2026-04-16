@@ -1,3 +1,7 @@
+from _path_setup import ensure_scripts_dir_on_path
+
+ensure_scripts_dir_on_path()
+
 import cv2
 
 from card_extraction_helpers import extract_card_from_image

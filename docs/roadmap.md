@@ -2,7 +2,7 @@
 
 ## Project vision
 
-Poker AI Dealer is a computer vision project aimed at recognizing playing cards from images or camera input and supporting Texas Hold'em game flow.
+Poker AI Dealer is a computer vision project aimed at recognizing playing cards from images or camera input and supporting future Texas Hold'em game flow.
 
 The long-term goal is to build a system that can:
 - detect cards on a table,
@@ -14,7 +14,7 @@ The long-term goal is to build a system that can:
 
 ## Current development stage
 
-Early MVP prototype implemented for static single-card recognition under controlled conditions.
+Implemented MVP for static single-card recognition under controlled conditions.
 
 Implemented prototype flow:
 - load a static image from disk,
@@ -27,17 +27,17 @@ Implemented prototype flow:
 - return a rank + suit prediction.
 
 Current work is focused on:
-- validating the pipeline on a small set of controlled test images,
-- documenting current assumptions and known limitations,
-- improving corner symbol separation for more card designs.
+- keeping the MVP stable and understandable,
+- documenting the current assumptions and known limitations,
+- cleaning up project structure and generated outputs,
+- preparing the project for the next milestone.
 
 ## Milestone 1 — Static single-card recognition
 
-Goal: 
+Goal:
 Build the simplest working prototype that can recognize one playing card from a static image under controlled conditions.
 
 Scope:
-
 - load a static image from disk,
 - detect a single card in the image,
 - crop and normalize the card region,
@@ -46,7 +46,6 @@ Scope:
 - return a structured result.
 
 Definition of done:
-
 - the program accepts a test image,
 - a card contour is detected,
 - the normalized card region can be visualized or saved,
@@ -54,6 +53,10 @@ Definition of done:
 - the system returns a rank + suit prediction,
 - the prototype works on a small validation set of controlled images,
 - current assumptions and failure cases are documented.
+
+Status:
+- implemented for controlled single-card inputs,
+- currently organized around an official MVP runner plus step-by-step pipeline scripts.
 
 ---
 
@@ -141,7 +144,10 @@ Possible future extensions:
 
 ## Immediate next steps
 
-- validate Milestone 1 on a small set of representative test cards,
-- document the current single-card MVP entry point and required template setup,
-- improve project structure by separating experimental scripts from the main MVP path,
-- decide whether the next iteration should improve classical CV heuristics or introduce a learned classifier for rank/suit recognition.
+- clean up `data/processed/` output organization so intermediate artifacts are easier to understand,
+- keep the official runner and step-by-step pipeline scripts aligned with the same shared logic,
+- improve project documentation around runner usage, assumptions, and generated outputs,
+- decide whether the next iteration should focus on stronger classical CV robustness or move toward learned rank/suit classification,
+- choose whether the next milestone is:
+  - improving single-card robustness further,
+  - or starting static multi-card recognition.

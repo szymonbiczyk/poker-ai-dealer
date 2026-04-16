@@ -1,3 +1,7 @@
+from _path_setup import ensure_scripts_dir_on_path
+
+ensure_scripts_dir_on_path()
+
 from corner_quality_helpers import compare_two_corners
 from io_helpers import load_image, show_images, wait_for_windows
 from path_helpers import get_processed_dir
@@ -21,7 +25,7 @@ def main() -> None:
     bottom_right_rotated = load_image(bottom_right_rotated_path)
 
     if top_left is None or bottom_right_rotated is None:
-        print("Run scripts/extract_both_card_corners.py first.")
+        print("Run scripts/pipeline_steps/extract_both_card_corners.py first.")
         return
 
     comparison = compare_two_corners(

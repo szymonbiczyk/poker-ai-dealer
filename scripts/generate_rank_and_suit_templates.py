@@ -7,7 +7,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from detect_symbols_from_best_corner import detect_rank_and_suit
 from io_helpers import is_image_file, save_jpg
 from path_helpers import (
     get_kaggle_cards_dir,
@@ -15,6 +14,8 @@ from path_helpers import (
     get_rank_templates_dir,
     get_suit_templates_dir,
 )
+from symbol_detection_helpers import detect_rank_and_suit
+from template_matching_helpers import normalize_symbol
 
 
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
@@ -145,63 +146,6 @@ def choose_canvas_size(template_dir: Path, images: list[np.ndarray]) -> tuple[in
         return existing_size
 
     return estimate_canvas_size(images)
-
-
-def create_symbol_mask(symbol_image: np.ndarray) -> np.ndarray:
-    """Convert a cropped symbol into a clean foreground mask."""
-    if symbol_image.ndim == 2:
-        gray = symbol_image
-    else:
-        gray = cv2.cvtColor(symbol_image, cv2.COLOR_BGR2GRAY)
-    _, threshold = cv2.threshold(
-        gray,
-        0,
-        255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-    )
-
-    foreground = cv2.findNonZero(threshold)
-
-    if foreground is None:
-        raise ValueError("No foreground pixels found in symbol image.")
-
-    x, y, width, height = cv2.boundingRect(foreground)
-    return threshold[y:y + height, x:x + width]
-
-
-def normalize_symbol(
-    symbol_image: np.ndarray,
-    canvas_size: tuple[int, int],
-    margin: int = 4,
-    allow_upscale: bool = False,
-) -> np.ndarray:
-    """Center a symbol on a fixed canvas and only shrink it when needed."""
-    canvas_height, canvas_width = canvas_size
-    mask = create_symbol_mask(symbol_image)
-
-    mask_height, mask_width = mask.shape[:2]
-    max_width = max(1, canvas_width - 2 * margin)
-    max_height = max(1, canvas_height - 2 * margin)
-
-    scale = min(max_width / mask_width, max_height / mask_height)
-    if not allow_upscale:
-        scale = min(scale, 1.0)
-
-    resized_width = max(1, int(round(mask_width * scale)))
-    resized_height = max(1, int(round(mask_height * scale)))
-
-    resized_mask = cv2.resize(
-        mask,
-        (resized_width, resized_height),
-        interpolation=cv2.INTER_NEAREST,
-    )
-
-    canvas = np.zeros((canvas_height, canvas_width), dtype=np.uint8)
-    offset_x = (canvas_width - resized_width) // 2
-    offset_y = (canvas_height - resized_height) // 2
-    canvas[offset_y:offset_y + resized_height, offset_x:offset_x + resized_width] = resized_mask
-
-    return canvas
 
 
 def mask_to_template_image(mask: np.ndarray) -> np.ndarray:

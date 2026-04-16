@@ -1,3 +1,7 @@
+from _path_setup import ensure_scripts_dir_on_path
+
+ensure_scripts_dir_on_path()
+
 from io_helpers import load_image as read_image, show_images, wait_for_windows
 from path_helpers import get_default_sample_image_path
 

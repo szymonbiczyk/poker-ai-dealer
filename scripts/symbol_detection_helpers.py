@@ -1,11 +1,9 @@
 import cv2
 import numpy as np
 
-from card_extraction_helpers import extract_card_from_image, extract_two_corners
-from corner_quality_helpers import compare_two_corners
 from corner_symbol_helpers import BoxCandidate, find_symbol_candidates, threshold_corner
-from io_helpers import load_image, save_images, show_images, wait_for_windows
-from path_helpers import get_default_sample_image_path, get_processed_dir
+from io_helpers import save_images
+from path_helpers import get_processed_dir
 
 
 DEBUG_IMAGE_FILENAMES = {
@@ -22,6 +20,7 @@ def merge_boxes(boxes: list[BoxCandidate]) -> tuple[int, int, int, int]:
     max_x = max(box[0] + box[2] for box in boxes)
     max_y = max(box[1] + box[3] for box in boxes)
     return min_x, min_y, max_x - min_x, max_y - min_y
+
 
 def box_center(box: BoxCandidate) -> tuple[float, float]:
     x, y, w, h, _ = box
@@ -97,47 +96,9 @@ def print_box_group(label: str, prefix: str, boxes: list[BoxCandidate]) -> None:
         print(f"{prefix}{idx}: {box}")
 
 
-def print_card_extraction_summary(extraction) -> None:
-    print(f"Found {len(extraction.contours)} contours.")
-    print(f"Largest contour area: {extraction.contour_area}")
-    print(f"Largest contour perimeter: {extraction.perimeter}")
-    print(f"Approximated contour points: {len(extraction.approx)}")
-
-
-def save_corner_selection_debug_images(
-    output_dir,
-    extracted_card: np.ndarray,
-    top_left_corner: np.ndarray,
-    bottom_right_corner_rotated: np.ndarray,
-    selected_corner: np.ndarray,
-) -> None:
-    save_images(
-        output_dir,
-        [
-            ("23_detect_best_corner_extracted_card.jpg", extracted_card),
-            ("24_detect_best_corner_top_left.jpg", top_left_corner),
-            ("25_detect_best_corner_bottom_right_rotated.jpg", bottom_right_corner_rotated),
-            ("26_detect_best_corner_selected.jpg", selected_corner),
-        ],
-    )
-
-
-def save_symbol_regions_debug_images(
-    output_dir,
-    threshold: np.ndarray,
-    boxed: np.ndarray,
-    rank_region: np.ndarray,
-    suit_region: np.ndarray,
-) -> None:
-    save_images(
-        output_dir,
-        [
-            ("27_detect_best_corner_threshold.jpg", threshold),
-            ("28_detect_best_corner_symbol_boxes.jpg", boxed),
-            ("29_detect_best_corner_rank_region.jpg", rank_region),
-            ("30_detect_best_corner_suit_region.jpg", suit_region),
-        ],
-    )
+def save_symbol_detection_debug_images(corner: np.ndarray, debug_info: dict) -> None:
+    debug_output_dir = get_processed_dir(create=True)
+    save_images(debug_output_dir, build_symbol_debug_images(corner, debug_info))
 
 
 def split_rank_and_suit_boxes(
@@ -254,7 +215,11 @@ def split_rank_and_suit_boxes(
 
     return rank_box, suit_box, debug_info
 
-def detect_rank_and_suit(corner: np.ndarray, min_area: int = 100) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+
+def detect_rank_and_suit(
+    corner: np.ndarray,
+    min_area: int = 100,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     _, threshold = threshold_corner(corner)
     _, candidates = find_symbol_candidates(threshold, min_area=min_area)
 
@@ -263,8 +228,7 @@ def detect_rank_and_suit(corner: np.ndarray, min_area: int = 100) -> tuple[np.nd
 
     rank_box, suit_box, debug_info = split_rank_and_suit_boxes(candidates)
 
-    debug_output_dir = get_processed_dir(create=True)
-    save_images(debug_output_dir, build_symbol_debug_images(corner, debug_info))
+    save_symbol_detection_debug_images(corner, debug_info)
 
     print_box_group("Sorted candidates", "C", debug_info["sorted_candidates"])
     print_box_group("Rank boxes", "R", debug_info["rank_boxes"])
@@ -285,85 +249,3 @@ def detect_rank_and_suit(corner: np.ndarray, min_area: int = 100) -> tuple[np.nd
     cv2.rectangle(boxed, (sx, sy), (sx + sw, sy + sh), (0, 0, 255), 2)
 
     return threshold, boxed, rank_region, suit_region
-
-
-def main() -> None:
-    image_path = get_default_sample_image_path()
-    output_dir = get_processed_dir(create=True)
-
-    if not image_path.exists():
-        print("Error: image file does not exist.")
-        return
-
-    image = load_image(image_path)
-
-    if image is None:
-        return
-
-    try:
-        extraction = extract_card_from_image(image)
-    except ValueError as error:
-        print(f"Error: {error}")
-        return
-
-    print_card_extraction_summary(extraction)
-
-    extracted_card = extraction.extracted_card
-    top_left_corner, bottom_right_corner_rotated = extract_two_corners(extracted_card)
-    comparison = compare_two_corners(
-        top_left_corner,
-        bottom_right_corner_rotated,
-        first_name="top_left",
-        second_name="bottom_right_rotated",
-    )
-    top_left_score = comparison["scores"]["top_left"]
-    bottom_right_score = comparison["scores"]["bottom_right_rotated"]
-
-    print(f"Top-left score: {top_left_score:.4f}")
-    print(f"Bottom-right rotated score: {bottom_right_score:.4f}")
-
-    selected_corner_name = comparison["selected_name"]
-    selected_corner = comparison["selected_image"]
-    selected_score = comparison["selected_score"]
-
-    print(f"Selected better corner: {selected_corner_name} ({selected_score:.4f})")
-
-    save_corner_selection_debug_images(
-        output_dir,
-        extracted_card,
-        top_left_corner,
-        bottom_right_corner_rotated,
-        selected_corner,
-    )
-
-    try:
-        threshold, boxed, rank_region, suit_region = detect_rank_and_suit(selected_corner)
-    except ValueError as error:
-        print(f"Error: {error}")
-        return
-
-    save_symbol_regions_debug_images(
-        output_dir,
-        threshold,
-        boxed,
-        rank_region,
-        suit_region,
-    )
-
-    show_images(
-        [
-            ("Extracted Card", extracted_card),
-            ("Top Left Corner", top_left_corner),
-            ("Bottom Right Corner Rotated", bottom_right_corner_rotated),
-            ("Selected Better Corner", selected_corner),
-            ("Selected Corner Threshold", threshold),
-            ("Selected Corner Symbol Boxes", boxed),
-            ("Rank Region", rank_region),
-            ("Suit Region", suit_region),
-        ]
-    )
-    wait_for_windows()
-
-
-if __name__ == "__main__":
-    main()

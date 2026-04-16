@@ -1,3 +1,7 @@
+from _path_setup import ensure_scripts_dir_on_path
+
+ensure_scripts_dir_on_path()
+
 import cv2
 
 from io_helpers import load_image, save_images, show_images, wait_for_windows

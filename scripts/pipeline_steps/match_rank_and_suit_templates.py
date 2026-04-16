@@ -1,16 +1,17 @@
-from pathlib import Path
+from _path_setup import ensure_scripts_dir_on_path
+
+ensure_scripts_dir_on_path()
 
 import cv2
 import numpy as np
 
-from generate_rank_and_suit_templates import normalize_symbol
 from io_helpers import (
-    is_image_file,
     load_grayscale_image,
     show_resizable_window,
     wait_for_windows,
 )
 from path_helpers import get_processed_dir, get_rank_templates_dir, get_suit_templates_dir
+from template_matching_helpers import match_symbol
 
 
 def to_bgr(image: np.ndarray) -> np.ndarray:
@@ -99,59 +100,6 @@ def create_comparison_preview(
     return stack_vertically([top_row, bottom_row])
 
 
-def match_symbol(symbol_image: np.ndarray, templates_dir: Path):
-    best_label = None
-    best_score = -1.0
-    best_template = None
-    best_normalized_symbol = None
-    best_normalized_template = None
-
-    all_results = []
-
-    for template_path in sorted(templates_dir.glob("*")):
-        if not is_image_file(template_path):
-            continue
-
-        template = load_grayscale_image(template_path)
-
-        if template is None:
-            continue
-
-        canvas_size = template.shape[:2]
-        normalized_symbol = normalize_symbol(symbol_image, canvas_size)
-        normalized_template = normalize_symbol(template, canvas_size)
-
-        result = cv2.matchTemplate(
-            normalized_symbol,
-            normalized_template,
-            cv2.TM_CCOEFF_NORMED,
-        )
-
-        score = float(result[0][0])
-        label = template_path.stem
-
-        all_results.append((label, score, template, normalized_symbol, normalized_template))
-        print(f"Template match: {label} -> {score:.4f}")
-
-        if score > best_score:
-            best_score = score
-            best_label = label
-            best_template = template
-            best_normalized_symbol = normalized_symbol
-            best_normalized_template = normalized_template
-
-    all_results.sort(key=lambda item: item[1], reverse=True)
-
-    return {
-        "best_label": best_label,
-        "best_score": best_score,
-        "best_template": best_template,
-        "best_normalized_symbol": best_normalized_symbol,
-        "best_normalized_template": best_normalized_template,
-        "all_results": all_results,
-    }
-
-
 def print_top_results(title: str, results: list[tuple], top_k: int = 3) -> None:
     print(f"\nTop {top_k} {title}:")
     for label, score, *_ in results[:top_k]:
@@ -168,7 +116,7 @@ def main() -> None:
 
     if not rank_image_path.exists() or not suit_image_path.exists():
         print("Error: rank or suit region image does not exist.")
-        print("Run scripts/detect_symbols_from_best_corner.py first.")
+        print("Run scripts/pipeline_steps/detect_symbols_from_best_corner.py first.")
         return
 
     if not rank_templates_dir.exists() or not suit_templates_dir.exists():

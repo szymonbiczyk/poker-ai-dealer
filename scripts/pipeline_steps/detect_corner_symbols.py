@@ -1,3 +1,7 @@
+from _path_setup import ensure_scripts_dir_on_path
+
+ensure_scripts_dir_on_path()
+
 import cv2
 
 from corner_symbol_helpers import find_symbol_candidates, threshold_corner
@@ -11,7 +15,7 @@ def main() -> None:
 
     if not corner_path.exists():
         print("Error: top-left corner image does not exist.")
-        print("Run scripts/extract_card_corner.py first.")
+        print("Run scripts/pipeline_steps/extract_card_corner.py first.")
         return
 
     corner = load_image(corner_path)
